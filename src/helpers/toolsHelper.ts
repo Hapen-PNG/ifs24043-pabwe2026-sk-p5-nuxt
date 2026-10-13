@@ -1,4 +1,5 @@
 import Swal from "sweetalert2";
+import { getApiBaseUrl } from "./apiHelper";
 
 export function showSuccessDialog(message: string) {
   return Swal.fire({
@@ -107,5 +108,5 @@ export function resolvePhotoUrl(photo?: string | null): string {
     return photo;
   }
 
-  return `${new URL(DELCOM_BASEURL).origin}/${photo.replace(/^\//, "")}`;
+  return `${new URL(getApiBaseUrl()).origin}/${photo.replace(/^\//, "")}`;
 }

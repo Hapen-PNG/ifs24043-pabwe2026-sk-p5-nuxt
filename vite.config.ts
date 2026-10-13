@@ -4,17 +4,6 @@ import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 import process from "process";
 
-const API_TARGET = "https://open-api.delcom.org";
-
-const apiProxy = {
-  "/api": {
-    target: API_TARGET,
-    changeOrigin: true,
-    // /api/cash-flows -> https://open-api.delcom.org/api/v1/cash-flows
-    rewrite: (path: string) => path.replace(/^\/api/, "/api/v1"),
-  },
-};
-
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -24,14 +13,9 @@ export default defineConfig(({ mode }) => {
     plugins: [vue(), tailwindcss()],
     server: {
       port,
-      proxy: apiProxy,
     },
     preview: {
       port,
-      proxy: apiProxy,
-    },
-    define: {
-      DELCOM_BASEURL: JSON.stringify(env.VITE_DELCOM_BASEURL || "/api"),
     },
     test: {
       globals: true,

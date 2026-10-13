@@ -16,6 +16,7 @@ import {
   showErrorDialog,
   showSuccessDialog,
 } from "./toolsHelper";
+import { getApiBaseUrl } from "./apiHelper";
 
 const normalize = (text: string) => text.replace(/\s/g, " ");
 
@@ -117,7 +118,7 @@ describe("label & badge", () => {
 });
 
 describe("resolvePhotoUrl", () => {
-  const origin = new URL(DELCOM_BASEURL).origin;
+  const origin = new URL(getApiBaseUrl()).origin;
 
   it("mengembalikan string kosong bila tidak ada foto", () => {
     expect(resolvePhotoUrl(null)).toBe("");

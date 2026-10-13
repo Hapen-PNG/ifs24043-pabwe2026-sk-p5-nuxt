@@ -17,11 +17,6 @@ export default defineConfig(({ mode }) => {
     preview: {
       port,
     },
-    define: {
-      DELCOM_BASEURL: JSON.stringify(
-        env.VITE_DELCOM_BASEURL || "https://open-api.delcom.org/api/v1"
-      ),
-    },
     test: {
       globals: true,
       environment: "jsdom",

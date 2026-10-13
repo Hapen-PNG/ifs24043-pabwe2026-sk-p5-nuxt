@@ -6,17 +6,23 @@ import {
   apiPost,
   apiPut,
   getAccessToken,
+  getApiBaseUrl,
   getErrorMessage,
   putAccessToken,
   removeAccessToken,
 } from "./apiHelper";
 
 const mockFetch = (body: unknown, status = 200) => {
-  const fn = vi.fn().mockResolvedValue({ status, json: async () => body });
+  const fn = vi.fn().mockResolvedValue({
+    status,
+    ok: status >= 200 && status < 300,
+    json: async () => body,
+  });
   vi.stubGlobal("fetch", fn);
   return fn;
 };
 
+const API_BASE_URL = getApiBaseUrl();
 const okBody = { status: "success", message: "ok", data: {} };
 
 afterEach(() => {
@@ -48,7 +54,7 @@ describe("apiGet", () => {
 
     expect(response).toEqual(okBody);
     expect(fetchMock).toHaveBeenCalledWith(
-      `${DELCOM_BASEURL}/cash-flows?type=inflow&total=0`,
+      `${API_BASE_URL}/cash-flows?type=inflow&total=0`,
       {
         method: "GET",
         headers: { Accept: "application/json", Authorization: "Bearer abc" },
@@ -62,7 +68,7 @@ describe("apiGet", () => {
 
     await apiGet("/users");
 
-    expect(fetchMock).toHaveBeenCalledWith(`${DELCOM_BASEURL}/users`, {
+    expect(fetchMock).toHaveBeenCalledWith(`${API_BASE_URL}/users`, {
       method: "GET",
       headers: { Accept: "application/json" },
       body: undefined,
@@ -74,7 +80,7 @@ describe("apiGet", () => {
 
     await apiGet("/users", { a: "" });
 
-    expect(fetchMock.mock.calls[0][0]).toBe(`${DELCOM_BASEURL}/users`);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${API_BASE_URL}/users`);
   });
 });
 
@@ -84,7 +90,7 @@ describe("apiPost / apiPut / apiDelete", () => {
 
     await apiPost("/auth/login", { email: "a@b.c" });
 
-    expect(fetchMock).toHaveBeenCalledWith(`${DELCOM_BASEURL}/auth/login`, {
+    expect(fetchMock).toHaveBeenCalledWith(`${API_BASE_URL}/auth/login`, {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify({ email: "a@b.c" }),
@@ -136,6 +142,7 @@ describe("apiFetch", () => {
     const response = await apiFetch("/users/me", { method: "GET" });
 
     expect(response.message).toBe("Unauthenticated.");
+    expect(response.httpStatus).toBe(401);
     expect(getAccessToken()).toBeNull();
   });
 
@@ -155,15 +162,63 @@ describe("apiFetch", () => {
 
     expect(response).toEqual({
       status: "fail",
-      message: "Gagal terhubung ke server",
+      message:
+        "Gagal terhubung ke server. Periksa koneksi internet dan URL API.",
       data: null,
+      errorCode: "network",
     });
+  });
+
+  it("menyimpan status HTTP ketika server membalas 404", async () => {
+    mockFetch({ status: "fail", message: "Not found", data: null }, 404);
+
+    const response = await apiFetch("/auth/login", { method: "POST" });
+
+    expect(response.httpStatus).toBe(404);
+    expect(getErrorMessage(response)).toContain("Endpoint API tidak ditemukan (404)");
+  });
+
+  it("membedakan error HTTP 500", async () => {
+    mockFetch({ status: "fail", message: "Internal error", data: null }, 500);
+
+    const response = await apiFetch("/auth/login", { method: "POST" });
+
+    expect(getErrorMessage(response)).toContain("Server API mengalami gangguan (500)");
+  });
+
+  it("tetap mengklasifikasikan halaman error non-JSON berdasarkan status HTTP", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        status: 404,
+        ok: false,
+        json: async () => {
+          throw new Error("Not JSON");
+        },
+      })
+    );
+
+    const response = await apiFetch("/auth/login", { method: "POST" });
+
+    expect(response.httpStatus).toBe(404);
+    expect(getErrorMessage(response)).toContain("Endpoint API tidak ditemukan (404)");
   });
 });
 
 describe("getErrorMessage", () => {
   it("memakai pesan utama bila data kosong", () => {
     expect(getErrorMessage({ status: "fail", message: "Gagal", data: null })).toBe("Gagal");
+  });
+
+  it("membedakan error HTTP 401", () => {
+    expect(
+      getErrorMessage({
+        status: "fail",
+        message: "Unauthorized",
+        data: null,
+        httpStatus: 401,
+      })
+    ).toContain("Autentikasi gagal atau akses tidak diizinkan (401)");
   });
 
   it("memakai pesan utama bila data bukan objek", () => {
