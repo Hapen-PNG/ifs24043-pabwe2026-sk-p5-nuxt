@@ -5,6 +5,7 @@ import {
   apiGet,
   apiPost,
   apiPut,
+  DEFAULT_API_BASE_URL,
   getAccessToken,
   getApiBaseUrl,
   getErrorMessage,
@@ -27,6 +28,7 @@ const okBody = { status: "success", message: "ok", data: {} };
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("token storage", () => {
@@ -36,6 +38,48 @@ describe("token storage", () => {
     expect(getAccessToken()).toBe("abc");
     removeAccessToken();
     expect(getAccessToken()).toBeNull();
+  });
+});
+
+describe("getApiBaseUrl", () => {
+  it("memakai URL default ketika base URL kosong", () => {
+    vi.stubEnv("VITE_DELCOM_BASEURL", "");
+
+    expect(getApiBaseUrl()).toBe(DEFAULT_API_BASE_URL);
+  });
+
+  it("memangkas spasi dan garis miring dari URL yang dikonfigurasi", () => {
+    vi.stubEnv("VITE_DELCOM_BASEURL", " https://example.test/api/// ");
+
+    expect(getApiBaseUrl()).toBe("https://example.test/api");
+  });
+
+  it("menolak URL absolut yang tidak valid", () => {
+    vi.stubEnv("VITE_DELCOM_BASEURL", "not-a-url");
+
+    expect(() => getApiBaseUrl()).toThrow(
+      "VITE_DELCOM_BASEURL harus berupa URL absolut yang valid."
+    );
+  });
+
+  it("menolak protokol selain HTTP dan HTTPS", () => {
+    vi.stubEnv("VITE_DELCOM_BASEURL", "ftp://example.test/api");
+
+    expect(() => getApiBaseUrl()).toThrow(
+      "VITE_DELCOM_BASEURL harus menggunakan HTTPS di production."
+    );
+  });
+
+  it("menolak HTTP di production tetapi menerima HTTPS", () => {
+    vi.stubEnv("PROD", true);
+    vi.stubEnv("VITE_DELCOM_BASEURL", "http://example.test/api");
+
+    expect(() => getApiBaseUrl()).toThrow(
+      "VITE_DELCOM_BASEURL harus menggunakan HTTPS di production."
+    );
+
+    vi.stubEnv("VITE_DELCOM_BASEURL", "https://example.test/api");
+    expect(getApiBaseUrl()).toBe("https://example.test/api");
   });
 });
 
@@ -135,6 +179,34 @@ describe("apiPost / apiPut / apiDelete", () => {
 });
 
 describe("apiFetch", () => {
+  it("mengembalikan error konfigurasi saat URL dasar invalid", async () => {
+    vi.stubEnv("VITE_DELCOM_BASEURL", "not-a-url");
+
+    const response = await apiFetch("/users", { method: "GET" });
+
+    expect(response).toEqual({
+      status: "fail",
+      message: "VITE_DELCOM_BASEURL harus berupa URL absolut yang valid.",
+      data: null,
+      errorCode: "configuration",
+    });
+  });
+
+  it("menggunakan pesan fallback jika kegagalan membuat URL bukan Error", async () => {
+    const params = new Proxy(
+      {},
+      {
+        ownKeys() {
+          throw null;
+        },
+      }
+    );
+    const response = await apiFetch("/users", { method: "GET", params });
+
+    expect(response.message).toBe("Konfigurasi URL API tidak valid.");
+    expect(response.errorCode).toBe("configuration");
+  });
+
   it("menghapus token ketika server membalas 401", async () => {
     putAccessToken("expired");
     mockFetch({ status: "fail", message: "Unauthenticated." }, 401);
@@ -203,6 +275,28 @@ describe("apiFetch", () => {
     expect(response.httpStatus).toBe(404);
     expect(getErrorMessage(response)).toContain("Endpoint API tidak ditemukan (404)");
   });
+
+  it("mengembalikan error ketika respons sukses bukan JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: async () => {
+          throw new Error("Not JSON");
+        },
+      })
+    );
+
+    const response = await apiFetch("/users", { method: "GET" });
+
+    expect(response).toEqual({
+      status: "fail",
+      message: "Server mengirim respons yang tidak valid (bukan JSON).",
+      data: null,
+      errorCode: "invalid_response",
+    });
+  });
 });
 
 describe("getErrorMessage", () => {
@@ -227,6 +321,36 @@ describe("getErrorMessage", () => {
 
   it("memakai pesan utama bila objek tidak punya detail", () => {
     expect(getErrorMessage({ status: "fail", message: "Gagal", data: {} })).toBe("Gagal");
+  });
+
+  it("mengembalikan pesan asli untuk kegagalan jaringan dan konfigurasi", () => {
+    expect(
+      getErrorMessage({
+        status: "fail",
+        message: "Koneksi terputus",
+        data: null,
+        errorCode: "network",
+      })
+    ).toBe("Koneksi terputus");
+    expect(
+      getErrorMessage({
+        status: "fail",
+        message: "URL API tidak valid",
+        data: null,
+        errorCode: "configuration",
+      })
+    ).toBe("URL API tidak valid");
+  });
+
+  it("memformat status HTTP selain 401, 404, dan 5xx", () => {
+    expect(
+      getErrorMessage({
+        status: "fail",
+        message: "Forbidden",
+        data: null,
+        httpStatus: 403,
+      })
+    ).toBe("Permintaan gagal (HTTP 403). Forbidden");
   });
 
   it("menggabungkan detail validasi per-field", () => {
